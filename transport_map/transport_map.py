@@ -1041,13 +1041,13 @@ class transport_map():
             # Check for Hermite function modifier       
             # TRUE if modifier is active, else FALSE
             hermite_function_modifier = np.asarray(
-                [True if i == 'HF' else False for i in term],
+                [i == 'HF' for i in term],
                 dtype=bool).any()
             
             # Check for linearization modifier  
             # TRUE if modifier is active, else FALSE                  
             linearize = np.asarray(
-                [True if i == 'LIN' else False for i in term],
+                [i == 'LIN' for i in term],
                 dtype=bool).any()
             
             # Check if linearization is also activated
@@ -1063,7 +1063,6 @@ class transport_map():
             
             # Extract the unique entries and their counts
             ui,ct   = np.unique(term, return_counts = True)
-            
             
             # Both Hermite function and linearization modifiers are active
             if hermite_function_modifier and linearize: 
@@ -1131,11 +1130,7 @@ class transport_map():
                     var         += "(["
                     
                     # Add polynomial coefficients
-                    for dc in dummy_coefficients:
-                        var     += str(dc)+","
-                    
-                    # Remove the last ","
-                    var         = var[:-1]
+                    var += ",".join(map(str, dummy_coefficients))
                     
                     # Close outer paranthesis
                     var         += "])"
@@ -1144,12 +1139,6 @@ class transport_map():
                     
                     var         += "(__x__[...,"+str(ui[i])+"])"
                     
-                    # Add Hermite function ------------------------------------
-                    
-                    if hermite_function_modifier:
-                    
-                        var         += "*np.exp(-__x__[...,"+str(ui[i])+"]**2/4)"
-                        
                     # Save the variable ---------------------------------------
                     if key not in list(modifier_log["variables"].keys()):
                         modifier_log["variables"][key]  = copy.copy(var)
@@ -1159,6 +1148,17 @@ class transport_map():
                         
                     # Add a multiplier, in case there are more terms 
                     string      += " * "
+
+                    # Add a modifier if necessary
+                    if hermite_function_modifier:
+                        HF_modifier_key = "P_"+str(ui[i]) + "_Herm"
+
+                        if HF_modifier_key not in list(modifier_log["variables"].keys()):
+                            HF_modifier_val = "np.exp(-__x__[...,"+str(ui[i])+"]**2/4)"
+                            modifier_log["variables"][HF_modifier_key]  = HF_modifier_val
+
+                        string  += copy.copy(HF_modifier_key)
+                        string  += " * "
                     
                 # -------------------------------------------------------------
                 # Derivative of polynomial
@@ -1185,11 +1185,7 @@ class transport_map():
                     varder      += "(["
                     
                     # Add polynomial coefficients
-                    for dc in dummy_coefficients_der:
-                        varder  += str(dc)+","
-                    
-                    # Remove the last ","
-                    varder      = varder[:-1]
+                    varder      += ",".join(map(str,dummy_coefficients_der))
                     
                     # Close outer paranthesis
                     varder      += "])"
@@ -1211,7 +1207,8 @@ class transport_map():
                     # https://www.wolframalpha.com/input/?i=derivative+of+f%28x%29*exp%28-x%5E2%2F4%29+wrt+x
                     
                     if hermite_function_modifier:
-                        
+                        HF_modifier_key = "P_"+str(ui[i]) + "_Herm"
+
                         # If we have a hermite function modifier, we also need
                         # the original form of the polynomial
                         
@@ -1224,11 +1221,7 @@ class transport_map():
                         varbase     += "(["
                         
                         # Add polynomial coefficients
-                        for dc in dummy_coefficients:
-                            varbase     += str(dc)+","
-                        
-                        # Remove the last ","
-                        varbase     = varbase[:-1]
+                        varbase     += ",".join(map(str,dummy_coefficients))
                         
                         # Close outer paranthesis
                         varbase     += "])"
@@ -1240,10 +1233,13 @@ class transport_map():
                         # Save the variable -----------------------------------
                         if key not in list(modifier_log["variables"].keys()):
                             modifier_log["variables"][key]   = copy.copy(varbase)
+
+                        if HF_modifier_key not in list(modifier_log["variables"].keys()):
+                            HF_modifier_val = "np.exp(-__x__[...,"+str(ui[i])+"]**2/4)"
+                            modifier_log["variables"][HF_modifier_key] = copy.copy(HF_modifier_val)
                         
                         # Now we can construct the actual derivative ----------
-                        
-                        string      = "-1/2*np.exp(-__x__[...,"+str(ui[i])+"]**2/4)*(__x__[...,"+str(ui[i])+"]*"+key+" - 2*"+keyder+")"
+                        string      = "-1/2*"+HF_modifier_key+"*(__x__[...,"+str(ui[i])+"]*"+key+" - 2*"+keyder+")"
                     
                     # Add a multiplier, in case there are more terms ----------
                     string      += " * "
@@ -1600,7 +1596,7 @@ class transport_map():
                 funstring   = "fun_nonmon_"+str(k)
                 exec(string.replace("fun",funstring), globals())
                 exec("self.fun_mon[k] = copy.deepcopy("+funstring+")")
-                
+
             # =================================================================
             # =================================================================
             # Step 2: Build the nonmonotone function
@@ -1842,7 +1838,7 @@ class transport_map():
                     funstring   = "fun_nonmon_"+str(k)
                     exec(string.replace("fun",funstring), globals())
                     exec("self.fun_nonmon[k] = copy.deepcopy("+funstring+")")
-                
+
         # =================================================================
         # =================================================================
         # Step 3: Finalize
@@ -2133,7 +2129,7 @@ class transport_map():
             funstring   = "der_fun_mon_"+str(k)
             exec(string.replace("fun",funstring), globals())
             exec("self.der_fun_mon.append(copy.deepcopy("+funstring+"))")
-                
+
         return
     
     
@@ -2521,11 +2517,10 @@ class transport_map():
         if self.monotonicity == "integrated rectifier":
         
             # Prepare the integration argument
-            def integral_argument(x,y,coeffs_mon,k):
-                
+            def integral_argument(t,y,coeffs_mon,k,bound):
                 # First reconstruct the full X matrix
                 X_loc           = copy.copy(y)
-                X_loc[:,self.skip_dimensions+k]      = copy.copy(x)
+                X_loc[:,self.skip_dimensions+k]      = t*bound
                 
                 # Then evaluate the Psi matrix
                 Psi_mon_loc     = self.fun_mon[k](X_loc,self)
@@ -2544,11 +2539,11 @@ class transport_map():
                 return arg
             
             # Evaluate the integral
-            monotone_part = self.GaussQuadrature(
+            monotone_part = self.Quadrature(
                 f               = integral_argument,
                 a               = 0,
-                b               = x[...,self.skip_dimensions+k],
-                args            = (x,coeffs_mon,k),
+                b               = 1,
+                args            = (x,coeffs_mon,k,x[...,self.skip_dimensions+k]),
                 **self.quadrature_input)
         
         # If we use a 'separable monotonicity' approach to ensure monotonicity
@@ -3341,11 +3336,11 @@ class transport_map():
         
         
         # Define the integration argument
-        def integral_argument_term1_jac(x,coeffs_mon,k): 
+        def integral_argument_term1_jac(t,coeffs_mon,k,bound): 
             
             # First reconstruct the full X matrix
             X_loc           = copy.copy(self.X)
-            X_loc[:,self.skip_dimensions+k]      = copy.copy(x)
+            X_loc[:,self.skip_dimensions+k]      = t*bound
             
             # Calculate the local basis function matrix
             Psi_mon_loc     = self.fun_mon[k](X_loc,self)
@@ -3362,11 +3357,11 @@ class transport_map():
             return objective
                       
         # Add the integration
-        term_1_vector_monotone  = self.GaussQuadrature(
+        term_1_vector_monotone  = self.Quadrature(
             f       = integral_argument_term1_jac,
             a       = 0,
-            b       = self.X[:,self.skip_dimensions+k],
-            args    = (coeffs_mon,k),
+            b       = 1,
+            args    = (coeffs_mon,k,self.X[:,self.skip_dimensions+k]),
             **self.quadrature_input)
         
         # If we have non-monotone terms, consider them
@@ -3945,9 +3940,9 @@ class transport_map():
         return X
     
 
-    def GaussQuadrature(self, f, a, b, order = 100, args = None, Ws = None, 
+    def Quadrature(self, f, a, b, order = 100, args = None, Ws = None, 
         xis = None, adaptive = False, threshold = 1E-6, increment = 1, 
-        verbose = False, full_output = False):
+        verbose = False, full_output = False, use_scipy = True):
         
         """
         This function implements a Gaussian quadrature numerical integration
@@ -3996,6 +3991,9 @@ class transport_map():
                 results. If True, returns a tuple with (results,order,xis,Ws).
                 If False, only returns results.
                 
+            use_scipy - [default = False]
+                [boolean] : Use scipy's adaptive integration function
+
             ===================================================================
             Adaptive integration variables
             ===================================================================
@@ -4024,6 +4022,15 @@ class transport_map():
         import numpy as np
         import copy
         
+        if use_scipy:
+            # TODO: Fix prior quadrature with bounds change
+            import scipy
+            if not (np.isscalar(a) and np.isscalar(b)):
+                raise ValueError(f"Expected a and b to be scalars, got a={a}, b={b}")
+            if full_output:
+                raise ValueError("Cannot return full output with scipy quadrature")
+            return scipy.integrate.quad_vec(lambda t: f(t,*args), a, b)[0]
+
         # =========================================================================
         # Here the actual magic starts
         # =========================================================================
@@ -4815,7 +4822,10 @@ class transport_map():
     #%%
     
     class rectifier:
-        
+        from enum import Enum
+        RectifierStrings = ['SOFTPLUS', 'SQUARED', 'EXPONENTIAL', 'EXPNEG', 'EXPLINEARUNIT']
+        Rectifier = Enum("Rectifier", RectifierStrings)
+        RectifierDict = {str(rec).split('.')[1].lower() : rec for rec in Rectifier}
 
         def __init__(self, mode = 'softplus', delta = 1E-8):
             
@@ -4836,7 +4846,7 @@ class transport_map():
                     flow in some of the rectifier functions.
             """
             
-            self.mode       = mode
+            self.mode       = self.RectifierDict[mode]
             self.delta      = delta
             
         def evaluate(self,X):
@@ -4850,19 +4860,19 @@ class transport_map():
                     [array] : an array of function evaluates to be rectified.
             """
             
-            if self.mode == 'squared':
+            if self.mode == self.Rectifier.SQUARED:
                 
                 res             = X**2
                 
-            elif self.mode == 'exponential':
+            elif self.mode == self.Rectifier.EXPONENTIAL:
                 
                 res             = np.exp(X)
                 
-            elif self.mode == 'expneg':
+            elif self.mode == self.Rectifier.EXPNEG:
                 
                 res             = np.exp(-X)
 
-            elif self.mode == 'softplus':
+            elif self.mode == self.Rectifier.SOFTPLUS:
                 
                 a               = np.log(2)
                 aX              = a*X
@@ -4870,7 +4880,7 @@ class transport_map():
                 aX[below]       = 0
                 res             = np.log(1 + np.exp(-np.abs(a*X))) + aX
                 
-            elif self.mode == 'explinearunit':
+            elif self.mode == self.Rectifier.EXPLINEARUNIT:
                 
                 res             = np.zeros(X.shape)
                 res[(X < 0)]    = np.exp(X[(X < 0)])
@@ -4892,19 +4902,19 @@ class transport_map():
             if len(np.where(X < 0)[0] > 0):
                 raise Exception("Input to inverse rectifier are negative.")
             
-            if self.mode == 'squared':
+            if self.mode == self.Rectifier.SQUARED:
                 
                 raise Exception("Squared rectifier is not invertible.")
                 
-            elif self.mode == 'exponential':
+            elif self.mode == self.Rectifier.EXPONENTIAL:
                 
                 res             = np.log(X)
                 
-            elif self.mode == 'expneg':
+            elif self.mode == self.Rectifier.EXPNEG:
                 
                 res             = -np.log(X)
 
-            elif self.mode == 'softplus':
+            elif self.mode == self.Rectifier.SOFTPLUS:
                 
                 a               = np.log(2)
                 
@@ -4918,7 +4928,7 @@ class transport_map():
                 res[opt1idx]    = opt1[opt1idx]
                 res[opt2idx]    = opt2[opt2idx]
                 
-            elif self.mode == 'explinearunit':
+            elif self.mode == self.Rectifier.EXPLINEARUNIT:
                 
                 res             = np.zeros(X.shape)
                 
@@ -4941,24 +4951,24 @@ class transport_map():
                     [array] : an array of function evaluates to be rectified.
             """
             
-            if self.mode == 'squared':
+            if self.mode == self.Rectifier.SQUARED:
                 
                 res             = 2*X
                 
-            elif self.mode == 'exponential':
+            elif self.mode == self.Rectifier.EXPONENTIAL:
                 
                 res             = np.exp(X)
                 
-            elif self.mode == 'expneg':
+            elif self.mode == self.Rectifier.EXPNEG:
                 
                 res             = -np.exp(-X)
                 
-            elif self.mode == 'softplus':
+            elif self.mode == self.Rectifier.SOFTPLUS:
                 
                 a               = np.log(2)
                 res             = 1/(1 + np.exp(-a*X))
                 
-            elif self.mode == 'explinearunit':
+            elif self.mode == self.Rectifier.EXPLINEARUNIT:
                 
                 below           = (X < 0)
                 above           = (X >= 0)
@@ -4977,11 +4987,11 @@ class transport_map():
             components if monotonicity = 'separable monotonicity'.
             """
             
-            if self.mode == 'squared':
+            if self.mode == self.Rectifier.SQUARED:
                 
                 raise Exception("Not implemented yet.")
                 
-            elif self.mode == 'exponential':
+            elif self.mode == self.Rectifier.EXPONENTIAL:
                 
                # https://www.wolframalpha.com/input/?i=derivative+of+exp%28f%28c%29%29+wrt+c
                 
@@ -4993,7 +5003,7 @@ class transport_map():
                     res,
                     dfdc)
                 
-            elif self.mode == 'expneg':
+            elif self.mode == self.Rectifier.EXPNEG:
                 
                 # https://www.wolframalpha.com/input/?i=derivative+of+exp%28-f%28c%29%29+wrt+c
                 
@@ -5005,7 +5015,7 @@ class transport_map():
                     res,
                     dfdc)
                 
-            elif self.mode == 'softplus':
+            elif self.mode == self.Rectifier.SOFTPLUS:
                 
                 # https://www.wolframalpha.com/input/?i=derivative+of+log%282%5Ef%28c%29%2B1%29%2Flog%282%29+wrt+c
                 
@@ -5019,7 +5029,7 @@ class transport_map():
                     res,
                     dfdc)
 
-            elif self.mode == 'explinearunit':
+            elif self.mode == self.Rectifier.EXPLINEARUNIT:
                 
                 raise Exception("Not implemented yet.")
                 
@@ -5036,11 +5046,11 @@ class transport_map():
                     [array] : an array of function evaluates to be rectified.
             """
             
-            if self.mode == 'squared':
+            if self.mode == self.Rectifier.SQUARED:
                 
                 res             = np.log(X**2)
                 
-            elif self.mode == 'exponential':
+            elif self.mode == self.Rectifier.EXPONENTIAL:
                 
                 # res             = np.log(np.abs(np.exp(X))) # -marked-
                 # res             = X
@@ -5049,11 +5059,11 @@ class transport_map():
                 else:
                     res         = np.log(np.exp(X) + self.delta)
                 
-            elif self.mode == 'expneg':
+            elif self.mode == self.Rectifier.EXPNEG:
                 
                 res             = -X
 
-            elif self.mode == 'softplus':
+            elif self.mode == self.Rectifier.SOFTPLUS:
                 
                 a               = np.log(2)
                 aX              = a*X
@@ -5063,7 +5073,7 @@ class transport_map():
                 
                 res             = np.log(res + self.delta)
                 
-            elif self.mode == 'explinearunit':
+            elif self.mode == self.Rectifier.EXPLINEARUNIT:
                 
                 res             = np.zeros(X.shape)
                 res[(X < 0)]    = np.exp(X[(X < 0)])

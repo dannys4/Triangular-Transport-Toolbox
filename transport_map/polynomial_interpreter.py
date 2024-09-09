@@ -22,6 +22,8 @@ def merge_cached_variables(key, old_value, add_value, polyfunc_str):
     return (coeffs, eval_str)
 
 def modifier_log_family(family_key, modifier_log, polyfunc_str, new_coefficients, dimension, order):
+    if order == 0:
+        return
     coeffs = None
     curr_degree = len(new_coefficients)
     # Save the variable's family

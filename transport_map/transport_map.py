@@ -1404,6 +1404,7 @@ class transport_map():
             
             # Prepare a dictionary for precalculated variables
             dict_precalc    = {}
+            dict_precalc_cached     = {}
             
             # Go through all terms
             for entry in self.nonmonotone[k]:

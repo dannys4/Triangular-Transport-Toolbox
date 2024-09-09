@@ -3,6 +3,7 @@ Triangular transport map toolbox v1.0.0
 """
 
 import numpy as np
+from .polynomial_interpreter import write_polynomial_basis_function, merge_cached_variables
 
 class transport_map():
     
@@ -275,32 +276,32 @@ class transport_map():
         if polynomial_type.lower() == 'standard' or polynomial_type.lower() == 'polynomial' or polynomial_type.lower() == 'power series':
             self.polyfunc       = np.polynomial.polynomial.Polynomial
             self.polyfunc_der   = np.polynomial.polynomial.polyder
-            self.polyfunc_str   = "np.polynomial.Polynomial"
+            self.polyfunc_str   = "np.polynomial.polynomial.polyval"
         elif polynomial_type.lower() == 'hermite' or polynomial_type.lower() == "phycisist's hermite" or polynomial_type.lower() == "phycisists hermite":
             self.polyfunc       = np.polynomial.hermite.Hermite
             self.polyfunc_der   = np.polynomial.hermite.hermder
-            self.polyfunc_str   = "np.polynomial.Hermite"
+            self.polyfunc_str   = "np.polynomial.hermite.hermval"
         elif polynomial_type.lower() == 'hermite_e' or polynomial_type.lower() == "probabilist's hermite" or polynomial_type.lower() == "probabilists hermite":
             self.polyfunc       = np.polynomial.hermite_e.HermiteE
             self.polyfunc_der   = np.polynomial.hermite_e.hermeder
-            self.polyfunc_str   = "np.polynomial.HermiteE"
+            self.polyfunc_str   = "np.polynomial.hermite_e.hermeval"
         elif polynomial_type.lower() == 'chebyshev':
             self.polyfunc       = np.polynomial.chebyshev.Chebyshev
             self.polyfunc_der   = np.polynomial.chebyshev.chebder
-            self.polyfunc_str   = "np.polynomial.Chebyshev"
+            self.polyfunc_str   = "np.polynomial.chebyshev.chebval"
         elif polynomial_type.lower() == 'laguerre':
             self.polyfunc       = np.polynomial.laguerre.Laguerre
             self.polyfunc_der   = np.polynomial.laguerre.lagder
-            self.polyfunc_str   = "np.polynomial.Laguerre"
+            self.polyfunc_str   = "np.polynomial.laguerre.lagval"
         elif polynomial_type.lower() == 'legendre':
             self.polyfunc       = np.polynomial.legendre.Legendre
             self.polyfunc_der   = np.polynomial.legendre.legder
-            self.polyfunc_str   = "np.polynomial.Legendre"
+            self.polyfunc_str   = "np.polynomial.legendre.legval"
         elif polynomial_type.lower() == 'hermite function' or polynomial_type.lower() == 'hermite_function' or polynomial_type.lower() == 'hermite functions':
             self.polynomial_type= 'hermite function'    # Unify this polynomial string, so we can use it as a flag
             self.polyfunc       = np.polynomial.hermite_e.HermiteE
             self.polyfunc_der   = np.polynomial.hermite_e.hermeder
-            self.polyfunc_str   = "np.polynomial.HermiteE"
+            self.polyfunc_str   = "np.polynomial.hermite_e.hermeval"
         else:
             raise Exception("Polynomial type not understood. The variable polynomial_type should be either 'power series', 'hermite', 'hermite_e', 'chebyshev', 'laguerre', or 'legendre'.")
         
@@ -1026,238 +1027,15 @@ class transport_map():
                     "understood. Currently, only LET, RET, iRBF, and RBF "+\
                     "are implemented.")
             
-            
         # =====================================================================
         # Polynomial term
         # =====================================================================
         
         # Otherwise, it is a standard polynomial term
         else:
-            
-            # -----------------------------------------------------------------
-            # Check for modifiers
-            # -----------------------------------------------------------------
-            
-            # Check for Hermite function modifier       
-            # TRUE if modifier is active, else FALSE
-            hermite_function_modifier = np.asarray(
-                [i == 'HF' for i in term],
-                dtype=bool).any()
-            
-            # Check for linearization modifier  
-            # TRUE if modifier is active, else FALSE                  
-            linearize = np.asarray(
-                [i == 'LIN' for i in term],
-                dtype=bool).any()
-            
-            # Check if linearization is also activated
-            if linearize and self.linearization is None:
-                raise Exception("'LIN' modifier specified in variable monotone, but the variable linearization is defined as None. Please specify a scalar linearization or remove the 'LIN' modifier.")
-            
-            # Remove all string-based modifiers
-            term    = [i for i in term if type(i) != str]
-            
-            # -----------------------------------------------------------------
-            # Construct the polynomial term
-            # -----------------------------------------------------------------
-            
-            # Extract the unique entries and their counts
-            ui,ct   = np.unique(term, return_counts = True)
-            
-            # Both Hermite function and linearization modifiers are active
-            if hermite_function_modifier and linearize: 
-            
-                # Log this term
-                modifier_log    = {
-                    "HFLIN"     : None}
-            
-            # Hermite function modifiers is active
-            elif hermite_function_modifier:
-                
-                # Log this term
-                modifier_log    = {
-                    "HF"        : None}
-            
-            # Linearization modifiers is active
-            elif linearize:
-            
-                # Log this term
-                modifier_log    = {
-                    "LIN"       : None}
-            
-            # Add a "variables" key to the modifier_log, if it does not already exist
-            if "variables" not in list(modifier_log.keys()):
-                modifier_log["variables"]   = {}
-
-            # Create an empty string
-            string  = ""
-            
-            # Go through all unique entries
-            for i in range(len(ui)):
-                
-                # Create an array of polynomial coefficients
-                dummy_coefficients      = [0.]*ct[i] + [1.]
-                
-                # Normalize the influence of Hermite functions
-                if hermite_function_modifier:
-                    
-                    # Evaluate a naive Hermite function
-                    hf_x    = np.linspace(-100,100,100001)
-                    hfeval  = self.polyfunc(dummy_coefficients)(hf_x)*np.exp(-hf_x**2/4)
-                    
-                    # Scale the polynomial coefficient to normalize its maximum value
-                    dummy_coefficients[-1]  = 1/np.max(np.abs(hfeval))
-                    
-                # -------------------------------------------------------------
-                # Standard polynomial
-                # -------------------------------------------------------------
-                                
-                if mode == 'standard' or (mode == 'derivative' and ui[i] != k):
-                    
-                    # Create a variable key
-                    key     = "P_"+str(ui[i])+"_O_"+str(ct[i])
-                    if hermite_function_modifier:
-                        key     += "_HF"
-                    if linearize:
-                        key     += "_LIN"
-                    
-                    # Set up function -----------------------------------------
-                    
-                    # Extract the polynomial 
-                    var         = copy.copy(self.polyfunc_str)
-                    
-                    # Open outer paranthesis
-                    var         += "(["
-                    
-                    # Add polynomial coefficients
-                    var += ",".join(map(str, dummy_coefficients))
-                    
-                    # Close outer paranthesis
-                    var         += "])"
-                    
-                    # Add variable --------------------------------------------
-                    
-                    var         += "(__x__[...,"+str(ui[i])+"])"
-                    
-                    # Save the variable ---------------------------------------
-                    if key not in list(modifier_log["variables"].keys()):
-                        modifier_log["variables"][key]  = copy.copy(var)
-                    
-                    # Add the variable to the string --------------------------
-                    string      += copy.copy(key)
-                        
-                    # Add a multiplier, in case there are more terms 
-                    string      += " * "
-
-                    # Add a modifier if necessary
-                    if hermite_function_modifier:
-                        HF_modifier_key = "P_"+str(ui[i]) + "_Herm"
-
-                        if HF_modifier_key not in list(modifier_log["variables"].keys()):
-                            HF_modifier_val = "np.exp(-__x__[...,"+str(ui[i])+"]**2/4)"
-                            modifier_log["variables"][HF_modifier_key]  = HF_modifier_val
-
-                        string  += copy.copy(HF_modifier_key)
-                        string  += " * "
-                    
-                # -------------------------------------------------------------
-                # Derivative of polynomial
-                # -------------------------------------------------------------
-    
-                elif mode == 'derivative':
-                    
-                    # Create a variable key for the standard polynomial
-                    key     = "P_"+str(ui[i])+"_O_"+str(ct[i])
-                    
-                    # Create a variable key for its derivative
-                    keyder  = "P_"+str(ui[i])+"_O_"+str(ct[i])+"_DER"
-                    
-                    
-                    # Set up function -----------------------------------------
-                    
-                    # Find the derivative coefficients
-                    dummy_coefficients_der  = self.polyfunc_der(dummy_coefficients)
-                    
-                    # Extract the polynomial 
-                    varder      = copy.copy(self.polyfunc_str)
-                    
-                    # Open outer paranthesis
-                    varder      += "(["
-                    
-                    # Add polynomial coefficients
-                    varder      += ",".join(map(str,dummy_coefficients_der))
-                    
-                    # Close outer paranthesis
-                    varder      += "])"
-                    
-                    # Add variable --------------------------------------------
-                
-                    varder      += "(__x__[...,"+str(ui[i])+"])"
-                    
-                    # Save the variable ---------------------------------------
-                    if keyder not in list(modifier_log["variables"].keys()):
-                        modifier_log["variables"][keyder]   = copy.copy(varder)
-                    
-                    # Add the variable to the string --------------------------
-                    if not hermite_function_modifier:
-                        string      += copy.copy(varder)
-                    
-                    # Add Hermite function ------------------------------------
-                    
-                    # https://www.wolframalpha.com/input/?i=derivative+of+f%28x%29*exp%28-x%5E2%2F4%29+wrt+x
-                    
-                    if hermite_function_modifier:
-                        HF_modifier_key = "P_"+str(ui[i]) + "_Herm"
-
-                        # If we have a hermite function modifier, we also need
-                        # the original form of the polynomial
-                        
-                        # Set up function -------------------------------------
-                        
-                        # Extract the polynomial 
-                        varbase     = copy.copy(self.polyfunc_str)
-                        
-                        # Open outer paranthesis
-                        varbase     += "(["
-                        
-                        # Add polynomial coefficients
-                        varbase     += ",".join(map(str,dummy_coefficients))
-                        
-                        # Close outer paranthesis
-                        varbase     += "])"
-                        
-                        # Add variable ----------------------------------------
-                    
-                        varbase     += "(__x__[...,"+str(ui[i])+"])"
-                        
-                        # Save the variable -----------------------------------
-                        if key not in list(modifier_log["variables"].keys()):
-                            modifier_log["variables"][key]   = copy.copy(varbase)
-
-                        if HF_modifier_key not in list(modifier_log["variables"].keys()):
-                            HF_modifier_val = "np.exp(-__x__[...,"+str(ui[i])+"]**2/4)"
-                            modifier_log["variables"][HF_modifier_key] = copy.copy(HF_modifier_val)
-                        
-                        # Now we can construct the actual derivative ----------
-                        string      = "-1/2*"+HF_modifier_key+"*(__x__[...,"+str(ui[i])+"]*"+key+" - 2*"+keyder+")"
-                    
-                    # Add a multiplier, in case there are more terms ----------
-                    string      += " * "
-            
-            # Remove the last multiplier " * "
-            string      = string[:-3]
-            
-            # If the variable we take the derivative against is not in the term,
-            # overwrite the string with zeros
-            if mode == 'derivative' and k not in ui:
-                
-                # Overwrite string with zeros
-                string      = "np.zeros(__x__.shape[:-1])"
-                
-                
-        return string, modifier_log
+            return write_polynomial_basis_function(term, self.polyfunc, self.polyfunc_str, self.polyfunc_der, mode, k)
         
-    
+        return string, modifier_log
 
     def function_constructor_alternative(self, k = None):
         
@@ -1335,8 +1113,10 @@ class transport_map():
             # Prepare a counter for the special terms
             ST_counter  = np.zeros(self.X.shape[-1],dtype=int)
             
-            # Prepare a dictionary for precalculated variables
-            dict_precalc    = {}
+            # Prepare dictionaries for precalculated variables
+            # We use dict_precalc_cached to store variables needed in precalc
+            dict_precalc_cached = {}
+            dict_precalc        = {}
             
             # Mark which of these are special terms, in case we want to create
             # permutations of multiple RBFS
@@ -1357,31 +1137,32 @@ class transport_map():
                 # -------------------------------------------------------------
                 # Extract any precalculations, where applicable
                 # -------------------------------------------------------------
-                
-                # If this term includes and precalculations, extract them
-                if "variables" in list(modifier_log.keys()):
-                    
-                    # There are precalculating variables. Go through each
-                    for key in list(modifier_log["variables"].keys()):
-                        
-                        # Have we logged this one already?
-                        if key not in list(dict_precalc.keys()):
-                            
-                            # No, we haven't. Add it.
-                            dict_precalc[key]   = copy.copy(modifier_log["variables"][key]).replace("__x__","x")
-                            
-                            # Wait a moment! Are we linearizing this term?
-                            if key.endswith("_LIN"):
+                for (variable_choice, my_dict) in [("variables", dict_precalc), ("cached_variables", dict_precalc_cached)]:
+                    # If this term includes and precalculations, extract them
+                    if variable_choice in modifier_log:
+                        # There are precalculating variables. Go through each
+                        for (key, value) in modifier_log[variable_choice].items():
+                            if variable_choice == "cached_variables":
+                                if key in my_dict:
+                                    value = merge_cached_variables(key, my_dict[key], value, self.polyfunc_str)
+                                my_dict[key] = value
+
+                            # Have we logged this one already?
+                            if key not in my_dict:
+                                # No, we haven't. Add it.
+                                my_dict[key]   = copy.copy(value).replace("__x__","x")
                                 
-                                # Yes, we are! What dimension is this?
-                                d   = int(copy.copy(key).split("_")[1])
-                                
-                                # Edit the term
-                                dict_precalc[key]   = \
-                                    copy.copy(dict_precalc[key]).replace("__x__","x_trc") + " * " + \
-                                    "(1 - vec[:,"+str(d)+"]/"+str(self.linearization_increment)+") + " + \
-                                    copy.copy(dict_precalc[key]).replace("__x__","x_ext") + " * " + \
-                                    "vec[:,"+str(d)+"]/"+str(self.linearization_increment)
+                                # Wait a moment! Are we linearizing this term?
+                                if key.endswith("_LIN"):
+                                    # Yes, we are! What dimension is this?
+                                    d   = int(copy.copy(key).split("_")[1])
+                                    
+                                    # Edit the term
+                                    my_dict[key]   = \
+                                        copy.copy(my_dict[key]).replace("__x__","x_trc") + " * " + \
+                                        "(1 - vec[:,"+str(d)+"]/"+str(self.linearization_increment)+") + " + \
+                                        copy.copy(my_dict[key]).replace("__x__","x_ext") + " * " + \
+                                        "vec[:,"+str(d)+"]/"+str(self.linearization_increment)
                             
                 # -------------------------------------------------------------
                 # Post-processing for special terms
@@ -1532,7 +1313,7 @@ class transport_map():
                 # Add a space to the next block
                 string  += "\n\t"
                 
-                # Also crate an extrapolated version of x_trc
+                # Also create an extrapolated version of x_trc
                 string  += "x_ext = copy.copy(x_trc);\n\t"
                 string  += "x_ext += shift*"+str(self.linearization_increment)+";\n\t" # Offset all values which have been snapped by a small increment
                 
@@ -1542,23 +1323,23 @@ class transport_map():
             # -----------------------------------------------------------------
             # Prepare precalculated variables
             # -----------------------------------------------------------------
-            
             # Add all precalculation terms
-            for key in list(dict_precalc.keys()):
-                
-                string  += key + " = " + copy.copy(dict_precalc[key]) + ";\n\t"
-                
+            for my_dict in [dict_precalc_cached, dict_precalc]:
+                for (key,value) in my_dict.items():
+                    # If we're using the cached variables, get the function string
+                    if my_dict is dict_precalc_cached:
+                        value = value[1].replace("__x__","x")
+                    string  += key + " = " + value + "\n\t"
+
             # -----------------------------------------------------------------
             # Assemble function output
             # -----------------------------------------------------------------
                 
             # Prepare the result string
             if len(terms) == 1: # Only a single term, no need for stacking
-                
-                string  += "result = "+copy.copy(terms[0])+"[:,np.newaxis];\n\t\n\t"
+                string  += "result = "+copy.copy(terms[0])+"[:,np.newaxis]\n\t\n\t"
                 
             else: # If we have more than one term, start stacking the result
-                
                 # Prepare the stack
                 string  += "result = np.stack((\n\t\t"
     
@@ -1572,13 +1353,15 @@ class transport_map():
                 
             # Return the result
             string  += "return result"
-            
+
+            print(f"Monotone function {k}:")
+            print(string)
+
             # -----------------------------------------------------------------
             # Finish function construction
             # -----------------------------------------------------------------
     
             if not partial_construction:
-    
                 # Append the function string
                 self.fun_mon_strings    .append(string)
     
@@ -1588,7 +1371,6 @@ class transport_map():
                 exec("self.fun_mon.append(copy.deepcopy("+funstring+"))")
                 
             else:
-                
                 # Insert the function string
                 self.fun_mon_strings[k]  = copy.copy(string)
 
@@ -1596,7 +1378,7 @@ class transport_map():
                 funstring   = "fun_nonmon_"+str(k)
                 exec(string.replace("fun",funstring), globals())
                 exec("self.fun_mon[k] = copy.deepcopy("+funstring+")")
-
+                
             # =================================================================
             # =================================================================
             # Step 2: Build the nonmonotone function
@@ -1604,7 +1386,6 @@ class transport_map():
             # =================================================================
             
             if not partial_construction:
-                
                 # Append the parameters
                 self.coeffs_nonmon  .append(np.ones(len(self.nonmonotone[k]))*self.coeffs_init)
             
@@ -1639,31 +1420,33 @@ class transport_map():
                 # -------------------------------------------------------------
                 # Extract any precalculations, where applicable
                 # -------------------------------------------------------------
-                
-                # If this term includes and precalculations, extract them
-                if "variables" in list(modifier_log.keys()):
-                    
-                    # There are precalculating variables. Go through each
-                    for key in list(modifier_log["variables"].keys()):
-                        
-                        # Have we logged this one already?
-                        if key not in list(dict_precalc.keys()):
+                for (variable_choice, my_dict) in [("variables", dict_precalc), ("cached_variables", dict_precalc_cached)]:
+                    # If this term includes and precalculations, extract them
+                    if variable_choice in modifier_log:
+                        # There are precalculating variables. Go through each
+                        for (key, value) in modifier_log[variable_choice].items():
+                            if variable_choice == "cached_variables":
+                                if key in my_dict:
+                                    value = merge_cached_variables(key, my_dict[key], value, self.polyfunc_str)
+                                my_dict[key] = value
                             
-                            # No, we haven't. Add it.
-                            dict_precalc[key]   = copy.copy(modifier_log["variables"][key]).replace("__x__","x")
-                            
-                            # Wait a moment! Are we linearizing this term?
-                            if key.endswith("_LIN"):
+                            # Have we logged this one already?
+                            if key not in my_dict:
+                                # No, we haven't. Add it.
+                                my_dict[key]   = copy.copy(value).replace("__x__","x")
                                 
-                                # Yes, we are! What dimension is this?
-                                d   = int(copy.copy(key).split("_")[1])
-                                
-                                # Edit the term
-                                dict_precalc[key]   = \
-                                    copy.copy(dict_precalc[key]).replace("__x__","x_trc") + " * " + \
-                                    "(1 - vec[:,"+str(d)+"]/"+str(self.linearization_increment)+") + " + \
-                                    copy.copy(dict_precalc[key]).replace("__x__","x_ext") + " * " + \
-                                    "vec[:,"+str(d)+"]/"+str(self.linearization_increment)
+                                # Wait a moment! Are we linearizing this term?
+                                if key.endswith("_LIN"):
+                                    
+                                    # Yes, we are! What dimension is this?
+                                    d   = int(copy.copy(key).split("_")[1])
+                                    
+                                    # Edit the term
+                                    my_dict[key]   = \
+                                        copy.copy(my_dict[key]).replace("__x__","x_trc") + " * " + \
+                                        "(1 - vec[:,"+str(d)+"]/"+str(self.linearization_increment)+") + " + \
+                                        copy.copy(my_dict[key]).replace("__x__","x_ext") + " * " + \
+                                        "vec[:,"+str(d)+"]/"+str(self.linearization_increment)
                             
                 # -------------------------------------------------------------
                 # Post-processing for special terms
@@ -1671,7 +1454,6 @@ class transport_map():
                 
                 # Is this term a special term?
                 if "ST" in list(modifier_log.keys()):
-                
                     # Yes, it is. Add additional modules to load, if necessary
                     if "import scipy.special" not in modules:
                         modules     .append("import scipy.special")
@@ -1708,7 +1490,6 @@ class transport_map():
             
             # Only assemble the function if there actually is a nonmonotone term
             if len(self.nonmonotone[k]) > 0:
-            
                 # Prepare the basis string
                 string  = "def fun(x,self):\n\t\n\t"
                 
@@ -1760,9 +1541,11 @@ class transport_map():
                 # -------------------------------------------------------------
                 
                 # Add all precalculation terms
-                for key in list(dict_precalc.keys()):
-                    
-                    string  += key + " = " + copy.copy(dict_precalc[key]) + ";\n\t"
+                for my_dict in [dict_precalc_cached, dict_precalc]:
+                    for (key, value) in my_dict.items():
+                        if my_dict is dict_precalc_cached:
+                            value = value[1].replace("__x__","x")
+                        string  += key + " = " + copy.copy(value) + ";\n\t"
                     
                 # -------------------------------------------------------------
                 # Assemble function output
@@ -1770,11 +1553,9 @@ class transport_map():
                     
                 # Prepare the result string
                 if len(terms) == 1: # Only a single term, no need for stacking
-                    
                     string  += "result = "+copy.copy(terms[0])+"[:,np.newaxis];\n\t\n\t"
                     
                 else: # If we have more than one term, start stacking the result
-                    
                     # Prepare the stack
                     string  += "result = np.stack((\n\t\t"
         
@@ -1789,12 +1570,13 @@ class transport_map():
                 # Return the result
                 string  += "return result"
                 
+                print(f"Nonmonotone function {k}:")
+                print(string)
                 # -------------------------------------------------------------
                 # Finish function construction
                 # -------------------------------------------------------------
         
                 if not partial_construction:
-        
                     # Append the function string
                     self.fun_nonmon_strings    .append(string)
                     
@@ -1804,7 +1586,6 @@ class transport_map():
                     exec("self.fun_nonmon.append(copy.deepcopy("+funstring+"))")
                     
                 else:
-                    
                     # Insert the function string
                     self.fun_nonmon_strings[k]  = copy.copy(string)
     
@@ -1814,11 +1595,12 @@ class transport_map():
                     exec("self.fun_nonmon[k] = copy.deepcopy("+funstring+")")
                 
             else: # There are NO non-monotone terms
-            
                 # Create a function which just returns None
                 string      = "def fun(x,self):\n\t"
                 string      += "return None"
                 
+                print(f"Nonmonotone function {k}:")
+                print(string)
                 if not partial_construction:
         
                     # Append the function string
@@ -1830,7 +1612,6 @@ class transport_map():
                     exec("self.fun_nonmon.append(copy.deepcopy("+funstring+"))")
                     
                 else:
-                    
                     # Insert the function string
                     self.fun_nonmon_strings[k]  = copy.copy(string)
     
@@ -1838,7 +1619,7 @@ class transport_map():
                     funstring   = "fun_nonmon_"+str(k)
                     exec(string.replace("fun",funstring), globals())
                     exec("self.fun_nonmon[k] = copy.deepcopy("+funstring+")")
-
+                
         # =================================================================
         # =================================================================
         # Step 3: Finalize
@@ -1848,13 +1629,9 @@ class transport_map():
         # If monotonicity mode is 'separable monotonicity', we also require the
         # derivative of the monotone part of the map
         if self.monotonicity.lower() == "separable monotonicity":
-                
             self.function_derivative_constructor_alternative()
                 
-                
         return
-    
-    
 
     def function_derivative_constructor_alternative(self):
         
@@ -1905,6 +1682,8 @@ class transport_map():
             
             # Go through all terms, extract terms for precalculation
             dict_precalc    = {}
+            dict_precalc_cached = {}
+
             for j,entry in enumerate(self.monotone[k]):
                 
                 # -------------------------------------------------------------
@@ -1932,17 +1711,19 @@ class transport_map():
                 # -------------------------------------------------------------
                 
                 # If this term includes and precalculations, extract them
-                if "variables" in list(modifier_log.keys()):
-                    
-                    # There are precalculating variables. Go through each
-                    for key in list(modifier_log["variables"].keys()):
-                        
-                        # Have we logged this one already?
-                        if key not in list(dict_precalc.keys()):
-                            
-                            # No, we haven't. Add it.
-                            dict_precalc[key]   = copy.copy(modifier_log["variables"][key]).replace("__x__","x")
-                            
+                for (variable_choice, my_dict) in [("variables", dict_precalc), ("cached_variables", dict_precalc_cached)]:
+                    if variable_choice in my_dict:
+                        # There are precalculating variables. Go through each
+                        for (key, value) in modifier_log[variable_choice]:
+                            if variable_choice == "cached_variables":
+                                if key in my_dict:
+                                    value = merge_cached_variables(key, my_dict[key], value, self.polyfunc_str)
+
+                            # Have we logged this one already?
+                            if key not in my_dict:
+                                # No, we haven't. Add it.
+                                my_dict[key]   = copy.copy(value).replace("__x__","x")
+
                 # -------------------------------------------------------------
                 # Post-processing for special terms
                 # -------------------------------------------------------------
@@ -2034,9 +1815,6 @@ class transport_map():
                 
                 # Now add all the grid terms
                 terms   += RBF_terms_grid
-                
-                
-                
 
             # =================================================================
             # Assemble the monotone derivative function
@@ -2089,9 +1867,9 @@ class transport_map():
             # -----------------------------------------------------------------
             
             # Add all precalculation terms
-            for key in list(dict_precalc.keys()):
-                
-                string  += key + " = " + copy.copy(dict_precalc[key]) + ";\n\t"
+            for my_dict in [dict_precalc_cached, dict_precalc]:
+                for (key, value) in my_dict:
+                    string  += key + " = " + copy.copy(value) + ";\n\t"
 
             # -----------------------------------------------------------------
             # Assemble function output
@@ -2099,11 +1877,9 @@ class transport_map():
             
             # Prepare the result string
             if len(terms) == 1: # Only a single term, no need for stacking
-                
                 string  += "result = "+copy.copy(terms[0])+"[:,np.newaxis];\n\t\n\t"
                 
             else: # If we have more than one term, start stacking the result
-                
                 # Prepare the stack
                 string  += "result = np.stack((\n\t\t"
     
@@ -2129,9 +1905,8 @@ class transport_map():
             funstring   = "der_fun_mon_"+str(k)
             exec(string.replace("fun",funstring), globals())
             exec("self.der_fun_mon.append(copy.deepcopy("+funstring+"))")
-
+                
         return
-    
     
     def check_for_special_terms(self):
         
@@ -2517,10 +2292,10 @@ class transport_map():
         if self.monotonicity == "integrated rectifier":
         
             # Prepare the integration argument
-            def integral_argument(t,y,coeffs_mon,k,bound):
+            def integral_argument(x,y,coeffs_mon,k):
                 # First reconstruct the full X matrix
                 X_loc           = copy.copy(y)
-                X_loc[:,self.skip_dimensions+k]      = t*bound
+                X_loc[:,self.skip_dimensions+k]      = copy.copy(x)
                 
                 # Then evaluate the Psi matrix
                 Psi_mon_loc     = self.fun_mon[k](X_loc,self)
@@ -2537,13 +2312,12 @@ class transport_map():
                 arg     += self.delta
                 
                 return arg
-            
             # Evaluate the integral
             monotone_part = self.Quadrature(
                 f               = integral_argument,
                 a               = 0,
-                b               = 1,
-                args            = (x,coeffs_mon,k,x[...,self.skip_dimensions+k]),
+                b               = x[...,self.skip_dimensions+k],
+                args            = (x,coeffs_mon,k),
                 **self.quadrature_input)
         
         # If we use a 'separable monotonicity' approach to ensure monotonicity
@@ -3336,11 +3110,11 @@ class transport_map():
         
         
         # Define the integration argument
-        def integral_argument_term1_jac(t,coeffs_mon,k,bound): 
+        def integral_argument_term1_jac(x,coeffs_mon,k): 
             
             # First reconstruct the full X matrix
             X_loc           = copy.copy(self.X)
-            X_loc[:,self.skip_dimensions+k]      = t*bound
+            X_loc[:,self.skip_dimensions+k]      = copy.copy(x)
             
             # Calculate the local basis function matrix
             Psi_mon_loc     = self.fun_mon[k](X_loc,self)
@@ -3360,8 +3134,8 @@ class transport_map():
         term_1_vector_monotone  = self.Quadrature(
             f       = integral_argument_term1_jac,
             a       = 0,
-            b       = 1,
-            args    = (coeffs_mon,k,self.X[:,self.skip_dimensions+k]),
+            b       = self.X[:,self.skip_dimensions+k],
+            args    = (coeffs_mon,k),
             **self.quadrature_input)
         
         # If we have non-monotone terms, consider them
@@ -3942,7 +3716,8 @@ class transport_map():
 
     def Quadrature(self, f, a, b, order = 100, args = None, Ws = None, 
         xis = None, adaptive = False, threshold = 1E-6, increment = 1, 
-        verbose = False, full_output = False, use_scipy = True):
+        verbose = False, full_output = False, use_scipy = False,
+        input_len = 0):
         
         """
         This function implements a Gaussian quadrature numerical integration
@@ -3994,6 +3769,9 @@ class transport_map():
             use_scipy - [default = False]
                 [boolean] : Use scipy's adaptive integration function
 
+            input_len - [default = 0]
+                [int] : How long the input will be (in case we cannot detect)
+
             ===================================================================
             Adaptive integration variables
             ===================================================================
@@ -4021,15 +3799,26 @@ class transport_map():
         
         import numpy as np
         import copy
-        
+        if np.size(a) == 0 or np.size(b) == 0:
+            return np.array([])
+
         if use_scipy:
             # TODO: Fix prior quadrature with bounds change
             import scipy
+            integrand = f
+            if args is not None:
+                integrand = lambda t: f(t, *args)
             if not (np.isscalar(a) and np.isscalar(b)):
-                raise ValueError(f"Expected a and b to be scalars, got a={a}, b={b}")
+                ba_diff = b-a
+                a_copy = copy.copy(a)
+                if args is not None:
+                    integrand = lambda t: f(t*ba_diff + a_copy, *args)
+                else:
+                    integrand = lambda t: f(t*ba_diff + a_copy)
+                a, b = 0., 1.
             if full_output:
                 raise ValueError("Cannot return full output with scipy quadrature")
-            return scipy.integrate.quad_vec(lambda t: f(t,*args), a, b)[0]
+            return scipy.integrate.quad_vec(integrand, a, b, quadrature='trapezoid')[0]
 
         # =========================================================================
         # Here the actual magic starts
@@ -4038,7 +3827,7 @@ class transport_map():
         # If adaptation is desired, we must iterate; prepare a flag for this 
         repeat      = True
         iteration   = 0
-        
+
         # Iterate, if adaptation = True; Otherwise, iteration stops after one round
         while repeat:
             
@@ -4066,14 +3855,19 @@ class transport_map():
                 # Calculate the weights of the integration points
                 Ws  = 2.0/( (1.0-xis**2)*(LegendreDer(xis)**2) )
                 
+            if not np.isscalar(a) and input_len <= 0:
+                input_len = len(a)
+            if not np.isscalar(b) and input_len <= 0:
+                input_len = len(b)
+
             # If any of the boundaries is a vector, vectorize the operation
-            if not np.isscalar(a) or not np.isscalar(b):
+            if input_len > 0:
                 
                 # If only one of the bounds is a scalar, vectorize it
-                if np.isscalar(a) and not np.isscalar(b):
-                    a       = np.ones(b.shape)*a
-                if np.isscalar(b) and not np.isscalar(a):
-                    b       = np.ones(a.shape)*b
+                if np.isscalar(a):
+                    a       = np.ones(input_len)*a
+                if np.isscalar(b):
+                    b       = np.ones(input_len)*b
                 
 
                 # Alternative approach, more amenable to dimension-sensitivity in
@@ -4081,7 +3875,6 @@ class transport_map():
                 # differences and sum
                 lim_dif = b-a
                 lim_sum = b+a
-                result  = np.zeros(a.shape)
                 
                 # print('limdifshape:'+str(lim_dif.shape))
                 # print('resultshape:'+str(result.shape))
@@ -4182,6 +3975,7 @@ class transport_map():
                     result  = (b-a)*0.5*np.sum( Ws*f( (b-a)*0.5*xis+ (b+a)*0.5 ) )
                 # Otherwise, pass the arguments on as well
                 else:
+                    print(f"Shapes: a:{a}, b:{b}, xis:{xis.shape}")
                     result  = (b-a)*0.5*np.sum( Ws*f(
                         (b-a)*0.5*xis + (b+a)*0.5,
                         *args) )

@@ -221,9 +221,16 @@ if 'dict_coeffs_order='+str(maxorder)+'.p' not in os.listdir(root_directory):
 
     print('No pre-optimized coefficients found. Optimizing...')
 
+    import time
+    start = time.time()
     # Optimize the transport maps. This takes a while, it's an extremeley
     # complicated map.
     tm.optimize()
+
+    # Time the function
+    end = time.time()
+    elapsed = end-start
+    print(f"Optimization took {elapsed}s!")
 
     # Store the coefficients in a dictionary
     dict_coeffs = {
